@@ -15,11 +15,11 @@ def StackLearning(multinetworks,contentFeature,outputdim,stack_layer,type='sigmo
             all_net_layer.append(Net_feature)
 
         all_feature = merge(all_net_layer+[contentFeature, relfeature], mode='concat', concat_axis=1)
-        if i==stack_layer:
+        if i!=stack_layer:
             relfeature=Dense(outputdim, activation='relu')(all_feature)
         else:
             y = Dense(outputdim,activation=type)(all_feature)
-    return y
+    return y,relfeature
 
 
 
@@ -57,22 +57,48 @@ def GraphInception(multinetworks,contentFeature,relFeature, inputdim,outputdim,l
             relFeature = graph_inception_module(relFeature, kernelsize, hiddendim, hiddendim, multinetworks, need1x1)
 
     allFeature= merge([contentFeature, relFeature], mode='concat')
-    y = Dense(outputdim, activation=outputtype)(allFeature)
-    return y
+    y=Dense(outputdim, activation=outputtype)(allFeature)
+
+
+    return y,relFeature
 
 
 
 def StackInception(multinetworks,contentFeature,outputdim,layerdepth,kernelsize,hiddendim,outputtype='sigmoid'):
-    relFeature = Dense(hiddendim, activation='relu')(contentFeature)
+    predictlabel = Dense(hiddendim, activation='relu')(contentFeature)
 
-    for i in range(layerdepth):
-        if i==layerdepth-1:
-            relFeature=graph_inception_module(relFeature, kernelsize, hiddendim, hiddendim, multinetworks, False)
+    for i in range(layerdepth+1):
+        relFeature=graph_inception_module(predictlabel,kernelsize,hiddendim,hiddendim,multinetworks,False)
+        if i == layerdepth:
+            y = Dense(outputdim, activation=outputtype)(merge([predictlabel, relFeature], mode='concat'))
         else:
-            relFeature=graph_inception_module(relFeature, kernelsize, hiddendim, hiddendim, multinetworks, True)
+            predictlabel = Dense(hiddendim, activation='relu')(merge([predictlabel, relFeature], mode='concat'))
 
-    y = Dense(outputdim, activation=outputtype)(relFeature)
-    return y
+    return y,relfeature
+
+
+
+def StackInception_share(multinetworks,contentFeature,outputdim,layerdepth,kernelsize,hiddendim,outputtype='sigmoid'):
+    predictlabel = Dense(hiddendim, activation='relu')(contentFeature)
+    dense=Dense(hiddendim, activation='relu')
+
+    for i in range(layerdepth+1):
+        convresults = []
+        for network in multinetworks:
+            Korder = predictlabel
+            for _ in range(kernelsize):
+                Korder = tf.sparse_tensor_dense_matmul(network, Korder)
+                W = tf.Variable(tf.random_uniform([hiddendim,hiddendim], -1.0, 1.0))
+                relfeature = Activation('relu')(K.dot(Korder, W))
+                convresults.append(relfeature)
+        relFeature = merge(convresults, mode='concat', concat_axis=1)
+
+        if i == layerdepth:
+            y = Dense(outputdim, activation=outputtype)(merge([predictlabel, relFeature], mode='concat'))
+        else:
+            predictlabel = dense(merge([predictlabel, relFeature], mode='concat'))
+
+    return y,relfeature
 
 
 
@@ -90,14 +116,14 @@ def CLN(multinetworks,contentFeature,hiddendim,outputdim,stack_layer,dropout=0.5
         for network in multinetworks:
             Net_feature = tf.sparse_tensor_dense_matmul(network, relFeature)
             all_net_layer.append(Net_feature)
-        netlayer = merge(all_net_layer, mode='concat')
+        netlayer = merge(all_net_layer, mode='concat') if len(all_net_layer)>1 else all_net_layer[0]
         if ishighway:
             relFeature=highway(isshared)([relFeature,netlayer])
         else:
             relFeature=Dense(hiddendim,activation='relu')(merge([relFeature,netlayer],mode='concat'))
     relFeature = Dropout(dropout)(relFeature)
     y = Dense(outputdim,activation=type)(relFeature)
-    return y
+    return y,relfeature
 
 
 
@@ -115,7 +141,7 @@ def HighwayNet(contentFeature,hiddendim,outputdim,stack_layer,type='sigmoid',iss
 
     relFeature = Dropout(dropout)(relFeature)
     y = Dense(outputdim,activation=type)(relFeature)
-    return y
+    return y,relfeature
 
 
 
@@ -137,7 +163,7 @@ def GCNLayer(multinetworks,contentFeature,inputdim,hiddendim,outputdim,_inceptio
     relfeature=merge(relfeatures, mode='concat', concat_axis=1) if not ishomo else relfeatures[0]
 
     y = Dense(outputdim, activation=type)(relfeature)
-    return y
+    return y,relfeature
 
 
 
@@ -154,4 +180,4 @@ def HCC(multinetworks,contentFeature,labels,outputdim,type='sigmoid',ishomo=Fals
 
     all_layer = merge([contentFeature, netlayer],mode='concat',concat_axis=1)
     y = Dense(outputdim, activation=type)(all_layer)
-    return y
+    return y,netlayer

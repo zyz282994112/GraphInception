@@ -9,7 +9,7 @@ from scipy.sparse import csr_matrix,coo_matrix
 
 
 def getData(dataname,linktype,ispart=False):
-    data=sio.loadmat('data/'+dataname+'.mat')
+    data=sio.loadmat('data/hetedataset/'+dataname+'.mat')
 
     truelabels=data['label']
     truefeatures = data['feature']
